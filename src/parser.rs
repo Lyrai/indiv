@@ -18,15 +18,21 @@ pub enum Node {
         var: Rc<Mutex<Node>>,
         term: Rc<Mutex<Node>>
     },
+    Substitution {
+        var: char,
+        subs: Rc<Mutex<Node>>,
+        term: Rc<Mutex<Node>>
+    },
     Var(char)
 }
 
 impl ToString for Node {
     fn to_string(&self) -> String {
         match self {
-            Node::Application { left, right } => format!("({}{})", left.lock().unwrap().deref().to_string(), right.lock().unwrap().deref().to_string()),
+            Node::Application { left, right } => format!("{}{}", left.lock().unwrap().deref().to_string(), right.lock().unwrap().deref().to_string()),
             Node::Lambda { var, term } => format!("(^{}.{})", var.lock().unwrap().deref().to_string(), term.lock().unwrap().deref().to_string()),
-            Node::Var(c) => format!("{}", c)
+            Node::Var(c) => format!("{}", c),
+            Node::Substitution {var, subs, term} => format!("([{}/{}]{})", subs.lock().unwrap().to_string(), var, term.lock().unwrap().to_string())
         }
     }
 }

@@ -1,5 +1,3 @@
-use std::iter::FromIterator;
-
 pub struct TokenStream {
     position: usize,
     line: Vec<char>
