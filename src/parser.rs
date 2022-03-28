@@ -1,35 +1,62 @@
 use crate::TokenStream;
 use crate::lexer::Token;
-use crate::parser::Node::UnOp;
+use std::rc::Rc;
+use std::sync::Mutex;
+use std::ops::Deref;
 
 pub struct Parser {
     stream: TokenStream
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Node {
-    Number(u32),
-    BinOp {
-        token: Token,
-        left: Box<Node>,
-        right: Box<Node>
+    Application {
+        left: Rc<Mutex<Node>>,
+        right: Rc<Mutex<Node>>
     },
-    UnOp {
-        token: Token,
-        child: Box<Node>
+    Lambda {
+        var: Rc<Mutex<Node>>,
+        term: Rc<Mutex<Node>>
     },
-    Mod {
-        modulus: u32,
-        expr: Box<Node>
-    },
-    None
+    Var(char)
+}
+
+impl ToString for Node {
+    fn to_string(&self) -> String {
+        match self {
+            Node::Application { left, right } => format!("({}{})", left.lock().unwrap().deref().to_string(), right.lock().unwrap().deref().to_string()),
+            Node::Lambda { var, term } => format!("(^{}.{})", var.lock().unwrap().deref().to_string(), term.lock().unwrap().deref().to_string()),
+            Node::Var(c) => format!("{}", c)
+        }
+    }
+}
+
+impl Node {
+    pub fn make_application(lhs: Self, rhs: Self) -> Self {
+        Node::Application {
+            left: Rc::new(Mutex::new(lhs)),
+            right: Rc::new(Mutex::new(rhs))
+        }
+    }
+
+    pub fn make_lambda(var: Self, term: Self) -> Self {
+        Node::Lambda {
+            var: Rc::new(Mutex::new(var)),
+            term: Rc::new(Mutex::new(term))
+        }
+    }
+
+    pub fn make_var(var: char) -> Self {
+        Node::Var(var)
+    }
 }
 
 /*
-expr => factor ((+|-) factor)* mod num
-factor => term (* term)*
-term => (inverse|-)? term | primary
-primary => num | (expr)
+term => application | (term)
+application => lambda (atom)* | var (atom)*
+atom => lambda | var
+lambda => ^var.term
+var => a..zA..Z
  */
 
 impl Parser {
@@ -39,85 +66,67 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Node {
-        let node = self.expression();
-        if let Some(Token::Mod) = self.match_token() {
-            self.consume_token();
-            if let Some(Token::Number(num)) = self.match_token() {
-                self.consume_token();
-                Node::Mod {
-                    modulus: num,
-                    expr: Box::new(node)
-                }
-            } else {
-                panic!("Unexpected token");
-            }
-        } else {
-            panic!("Mod required");
+    pub fn parse(&mut self) -> Rc<Mutex<Node>> {
+        let node = self.application();
+        if let Some(Token::Eof) = self.match_token() {
+            panic!("Unexpected end of file")
         }
-    }
-
-    fn expression(&mut self) -> Node {
-        let left = self.factor();
-        let token = match self.match_token() {
-            Some(Token::Plus | Token::Minus) => self.consume_token().unwrap(),
-            _ => return left
-        };
-
-        let right = self.factor();
-        Node::BinOp {
-            token,
-            left: Box::new(left),
-            right: Box::new(right)
-        }
-    }
-
-    fn factor(&mut self) -> Node {
-        let left = self.term();
-        let token = match self.match_token() {
-            Some(Token::Multiply) => self.consume_token().unwrap(),
-            _ => return left
-        };
-        let right = self.term();
-        Node::BinOp {
-            token,
-            left: Box::new(left),
-            right: Box::new(right)
-        }
+        Rc::new(Mutex::new(node))
     }
 
     fn term(&mut self) -> Node {
         match self.match_token() {
             None => panic!("Unexpected end of file"),
-            Some(Token::Inverse | Token::Minus) => UnOp {
-                token: self.consume_token().unwrap(),
-                child: Box::new(self.term()),
-            },
-            Some(Token::Number(_)) => self.primary(),
+            Some(Token::Lambda | Token::Var(_)) => self.application(),
             Some(Token::Lpar) => {
                 self.consume_token();
-                let node = self.expression();
-                if let Some(Token::Rpar) = self.match_token() {
-                    self.consume_token();
+                let result = self.application();
+                let token = self.consume_token();
+                if let Some(Token::Rpar) = token {
+                    result
                 } else {
-                    panic!("Unexpected token");
+                    panic!("Unexpected token {:?}", token)
                 }
-
-                node
             }
-            Some(t) => panic!("Unexpected token {:?}", t)
+            _ => panic!("Unexpected token")
         }
     }
 
-    fn primary(&mut self) -> Node {
-        match self.match_token() {
-            None => panic!("Unexpected end of file"),
-            Some(Token::Number(num)) => {
-                self.consume_token();
-                Node::Number(num)
+    fn application(&mut self) -> Node {
+        let mut lhs = self.atom().unwrap();
+        loop {
+            if let Some(Token::Eof) = self.match_token() {
+                break;
             }
-            //Some(Token::Lpar) => self.expression(),
-            Some(t) => panic!("Unexpected token {:?}", t)
+            let rhs = self.atom();
+            if rhs.is_none() {
+                break;
+            }
+
+            lhs = Node::make_application(lhs, rhs.unwrap());
+        }
+
+        lhs
+    }
+
+    fn atom(&mut self) -> Option<Node> {
+        match self.match_token() {
+            Some(Token::Var(c)) => { self.consume_token(); Some(Node::Var(c)) }
+            Some(Token::Lambda) => { self.consume_token(); Some(self.lambda()) }
+            Some(Token::Lpar) => Some(self.term()),
+            _ => None
+        }
+    }
+
+    fn lambda(&mut self) -> Node {
+        if let Some(Token::Var(c)) = self.consume_token() {
+            if let Some(Token::Dot) = self.consume_token() {
+                Node::make_lambda(Node::make_var(c), self.term())
+            } else {
+                panic!("No dot in lambda")
+            }
+        } else {
+            panic!("No variable in lambda")
         }
     }
 

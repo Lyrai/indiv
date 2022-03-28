@@ -1,17 +1,17 @@
+use std::iter::FromIterator;
+
 pub struct TokenStream {
     position: usize,
     line: Vec<char>
 }
 #[derive(Debug)]
 pub enum Token {
-    Number(u32),
-    Plus,
-    Minus,
-    Multiply,
-    Inverse,
     Lpar,
     Rpar,
-    Mod
+    Var(char),
+    Lambda,
+    Dot,
+    Eof
 }
 
 impl TokenStream {
@@ -20,7 +20,6 @@ impl TokenStream {
             position: 0,
             line: line
                 .chars()
-                .filter(|&x| !x.is_whitespace())
                 .collect()
         }
     }
@@ -38,49 +37,23 @@ impl TokenStream {
 
         let mut symbol = self.line[self.position];
 
-        if symbol.is_digit(10) {
-            let mut num = 0;
-            let mut count = 0;
-            while let Some(n) = symbol.to_digit(10) {
-                num = num * 10 + n;
-                self.position += 1;
-                count += 1;
-                if self.position == self.line.len() {
-                    break;
-                }
-
-                symbol = self.line[self.position];
+        while symbol.is_whitespace() {
+            if self.position + 1 == self.line.len() {
+                return (None, 0);
             }
-
-            self.position -= count;
-            return (Some(Token::Number(num)), count)
-        };
+            self.position += 1;
+            symbol = self.line[self.position];
+        }
 
         match symbol {
-            '+' => (Some(Token::Plus), 1),
-            '-' => (Some(Token::Minus), 1),
-            '*' => (Some(Token::Multiply), 1),
             '(' => (Some(Token::Lpar), 1),
             ')' => (Some(Token::Rpar), 1),
-            'i' => {
-                let rest = self.line[self.position..self.position + 7].to_vec();
-                let check = "inverse".chars().collect::<Vec<char>>();
-                if check == rest {
-                    (Some(Token::Inverse), 7)
-                } else {
-                    (None, 0)
-                }
+            '^' => (Some(Token::Lambda), 1),
+            t if t.is_alphabetic() => {
+                (Some(Token::Var(t)), 1)
             }
-            'm' => {
-                let rest = self.line[self.position..self.position + 3].to_vec();
-                let check = "mod".chars();
-
-                if check.eq(rest) {
-                    (Some(Token::Mod), 3)
-                } else {
-                    (None, 0)
-                }
-            }
+            '.' => (Some(Token::Dot), 1),
+            _ if self.position == self.line.len() => (Some(Token::Eof), 0),
             _ => (None, 0)
         }
     }
