@@ -36,7 +36,7 @@ impl Interpreter {
                     return "loop".to_owned();
                 }
                 exprs.insert(root.borrow().to_string());
-                
+
                 print!("{} => ", root.borrow().to_string());
                 Self::substitute(subs);
             }

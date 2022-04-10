@@ -30,12 +30,18 @@ impl ToString for Node {
     fn to_string(&self) -> String {
         match self {
             Node::Application { left, right } => {
-                if let n @ (Node::Application {..} | Node::Substitution {..}) = deref!(right) {
-                    format!("{}({})", left.borrow().to_string(), n.to_string())
-                } else if let n @ (Node::Lambda {..} | Node::Substitution {..}) = deref!(left) {
-                    format!("({}){}", n.to_string(), right.borrow().to_string())
+                if let (Node::Lambda {..} | Node::Substitution {..}) = deref!(left) {
+                    if let (Node::Application {..} | Node::Substitution {..}) = deref!(right) {
+                        format!("({})({})", left.borrow().to_string(), right.borrow().to_string())
+                    } else {
+                        format!("({}){}", left.borrow().to_string(), right.borrow().to_string())
+                    }
                 } else {
-                    format!("{}{}", left.borrow().to_string(), right.borrow().to_string())
+                    if let (Node::Application {..} | Node::Substitution {..}) = deref!(right) {
+                        format!("{}({})", left.borrow().to_string(), right.borrow().to_string())
+                    } else {
+                        format!("{}{}", left.borrow().to_string(), right.borrow().to_string())
+                    }
                 }
             },
             Node::Lambda { var, term } => format!("^{}.{}", var.borrow().to_string(), term.borrow().to_string()),
