@@ -1,4 +1,4 @@
-use crate::TokenStream;
+use crate::{deref, TokenStream};
 use crate::lexer::Token;
 use std::rc::Rc;
 use std::ops::Deref;
@@ -8,7 +8,7 @@ pub struct Parser {
     stream: TokenStream
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Node {
     Application {
         left: Rc<RefCell<Node>>,
@@ -30,15 +30,23 @@ impl ToString for Node {
     fn to_string(&self) -> String {
         match self {
             Node::Application { left, right } => {
-                if let n @ Node::Application {..} = right.borrow().deref() {
+                if let n @ (Node::Application {..} | Node::Substitution {..}) = deref!(right) {
                     format!("{}({})", left.borrow().to_string(), n.to_string())
+                } else if let n @ (Node::Lambda {..} | Node::Substitution {..}) = deref!(left) {
+                    format!("({}){}", n.to_string(), right.borrow().to_string())
                 } else {
                     format!("{}{}", left.borrow().to_string(), right.borrow().to_string())
                 }
             },
-            Node::Lambda { var, term } => format!("(^{}.{})", var.borrow().to_string(), term.borrow().to_string()),
+            Node::Lambda { var, term } => format!("^{}.{}", var.borrow().to_string(), term.borrow().to_string()),
             Node::Var(c) => format!("{}", c),
-            Node::Substitution {var, subs, term} => format!("([{}/{}]{})", subs.borrow().to_string(), var, term.borrow().to_string())
+            Node::Substitution {var, subs, term} => {
+                if let Node::Var(_) = deref!(term) {
+                    format!("[{}/{}]{}", subs.borrow().to_string(), var, term.borrow().to_string())
+                } else {
+                    format!("[{}/{}]({})", subs.borrow().to_string(), var, term.borrow().to_string())
+                }
+            }
         }
     }
 }

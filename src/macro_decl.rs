@@ -1,4 +1,4 @@
 #[macro_export]
-macro_rules! mutex {
-    ($mutex: expr) => { $mutex.lock().unwrap() };
+macro_rules! deref {
+    ($node: expr) => { $node.borrow().deref() };
 }

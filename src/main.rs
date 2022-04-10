@@ -1,3 +1,4 @@
+use std::io::{self, Write};
 use crate::interpreter::Interpreter;
 use crate::lexer::TokenStream;
 use crate::parser::Parser;
@@ -20,7 +21,9 @@ fn interpret(line: String) {
 
 fn main() {
     loop {
-        let stdin = std::io::stdin();
+        print!("\n> ");
+        let _ = io::stdout().flush();
+        let stdin = io::stdin();
         let mut str = String::new();
         let _ = stdin.read_line(&mut str);
         let str = str.trim_end().to_owned();

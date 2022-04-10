@@ -1,8 +1,10 @@
 use crate::parser::Node;
 use crate::except::{Except, Unite};
 use std::rc::Rc;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::cell::RefCell;
+use std::collections::HashSet;
+use crate::deref;
 
 pub struct Interpreter;
 
@@ -21,14 +23,24 @@ wa = bv(w) u bv(a)
 
 impl Interpreter {
     pub fn interpret(root: Rc<RefCell<Node>>) -> String {
-        let mut redex = Self::find_redex(root.clone());
         print!("{} => ", root.borrow().to_string());
+        let mut redex = Self::find_redex(root.clone());
+        let mut exprs = HashSet::new();
+        exprs.insert(root.borrow().to_string());
+
         while let Some(node) = redex {
             Self::prepare(node.clone());
+
             while let Some(subs) = Self::find_substitution(node.clone()) {
+                if exprs.contains(&root.borrow().to_string()) {
+                    return "loop".to_owned();
+                }
+                exprs.insert(root.borrow().to_string());
+                
                 print!("{} => ", root.borrow().to_string());
                 Self::substitute(subs);
             }
+
             print!("{} => ", root.borrow().to_string());
             redex = Self::find_redex(root.clone());
         }
@@ -37,7 +49,7 @@ impl Interpreter {
     }
 
     pub fn free_vars(root: &Rc<RefCell<Node>>) -> Vec<char> {
-        match root.borrow().deref() {
+        match deref!(root) {
             Node::Application {left, right} => Self::free_vars(left).unite(&Self::free_vars(right)),
             Node::Lambda {var, term} => Self::free_vars(term).except(&Self::free_vars(var)),
             Node::Var(c) => vec![*c],
@@ -46,9 +58,9 @@ impl Interpreter {
     }
 
     fn find_redex(root: Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
-        match root.clone().borrow().deref() {
+        match deref!(root.clone()) {
             Node::Application {left, right} => {
-                if let &Node::Lambda {..} = (left).borrow().deref() {
+                if let &Node::Lambda {..} = deref!(left) {
                     return Some(root);
                 }
 
@@ -68,10 +80,10 @@ impl Interpreter {
         let term;
         let subs;
         let var;
-        if let Node::Application {left, right} = node.borrow().deref() {
-            if let Node::Lambda {var: v, term: t} = left.borrow().deref() {
+        if let Node::Application {left, right} = deref!(node) {
+            if let Node::Lambda {var: v, term: t} = deref!(left) {
                 term = t.clone();
-                if let Node::Var(v) = v.borrow().deref() {
+                if let Node::Var(v) = deref!(v) {
                     var = *v;
                 } else {
                     unreachable!();
@@ -94,8 +106,8 @@ impl Interpreter {
     }
 
     fn substitute(node: Rc<RefCell<Node>>) {
-        let s = if let Node::Substitution {var, subs, term} = node.borrow().deref() {
-            match term.borrow().deref() {
+        let s = if let Node::Substitution {var, subs, term} = deref!(node) {
+            match deref!(term) {
                 Node::Application {left, right} => {
                     //Rule 3
                     let left = Node::Substitution {
@@ -113,14 +125,14 @@ impl Interpreter {
                 v @ Node::Var(c) => {
                     if c == var {
                         //Rule 1
-                        (subs).borrow().clone()
+                        subs.borrow().clone()
                     } else {
                         //Rule 2
                         v.clone()
                     }
                 }
                 n @ Node::Lambda {var: v, term} => {
-                    let v = if let Node::Var(v) = v.borrow().deref() {
+                    let v = if let Node::Var(v) = deref!(v) {
                         *v
                     } else {
                         unreachable!()
@@ -192,7 +204,7 @@ impl Interpreter {
     }
 
     fn find_substitution(root: Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
-        match root.borrow().deref() {
+        match deref!(root) {
             Node::Substitution {..} => Some(root.clone()),
             Node::Var(_) => None,
             Node::Application {left, right} => {
