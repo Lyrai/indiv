@@ -1,9 +1,8 @@
 use crate::parser::Node;
 use crate::except::{Except, Unite};
-use crate::mutex;
 use std::rc::Rc;
 use std::ops::{Deref, DerefMut};
-use std::sync::Mutex;
+use std::cell::RefCell;
 
 pub struct Interpreter;
 
@@ -21,24 +20,24 @@ wa = bv(w) u bv(a)
 
 
 impl Interpreter {
-    pub fn interpret(root: Rc<Mutex<Node>>) -> String {
+    pub fn interpret(root: Rc<RefCell<Node>>) -> String {
         let mut redex = Self::find_redex(root.clone());
-        print!("{} => ", mutex!(root).to_string());
+        print!("{} => ", root.borrow().to_string());
         while let Some(node) = redex {
             Self::prepare(node.clone());
             while let Some(subs) = Self::find_substitution(node.clone()) {
-                print!("{} => ", mutex!(root).to_string());
+                print!("{} => ", root.borrow().to_string());
                 Self::substitute(subs);
             }
-            print!("{} => ", mutex!(root).to_string());
+            print!("{} => ", root.borrow().to_string());
             redex = Self::find_redex(root.clone());
         }
 
-        mutex!(root).deref().to_string()
+        root.borrow().to_string()
     }
 
-    pub fn free_vars(root: &Rc<Mutex<Node>>) -> Vec<char> {
-        match mutex!(root).deref() {
+    pub fn free_vars(root: &Rc<RefCell<Node>>) -> Vec<char> {
+        match root.borrow().deref() {
             Node::Application {left, right} => Self::free_vars(left).unite(&Self::free_vars(right)),
             Node::Lambda {var, term} => Self::free_vars(term).except(&Self::free_vars(var)),
             Node::Var(c) => vec![*c],
@@ -46,10 +45,10 @@ impl Interpreter {
         }
     }
 
-    fn find_redex(root: Rc<Mutex<Node>>) -> Option<Rc<Mutex<Node>>> {
-        match mutex!(root.clone()).deref() {
+    fn find_redex(root: Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
+        match root.clone().borrow().deref() {
             Node::Application {left, right} => {
-                if let &Node::Lambda {..} = mutex!(left).deref() {
+                if let &Node::Lambda {..} = (left).borrow().deref() {
                     return Some(root);
                 }
 
@@ -65,14 +64,14 @@ impl Interpreter {
         }
     }
 
-    fn prepare(node: Rc<Mutex<Node>>) {
+    fn prepare(node: Rc<RefCell<Node>>) {
         let term;
         let subs;
         let var;
-        if let Node::Application {left, right} = mutex!(node).deref() {
-            if let Node::Lambda {var: v, term: t} = mutex!(left).deref() {
+        if let Node::Application {left, right} = node.borrow().deref() {
+            if let Node::Lambda {var: v, term: t} = left.borrow().deref() {
                 term = t.clone();
-                if let Node::Var(v) = mutex!(v).deref() {
+                if let Node::Var(v) = v.borrow().deref() {
                     var = *v;
                 } else {
                     unreachable!();
@@ -86,8 +85,7 @@ impl Interpreter {
             unreachable!();
         }
 
-        let mut n = mutex!(node);
-        let n = n.deref_mut();
+        let mut n = node.borrow_mut();
         *n = Node::Substitution {
             var,
             subs,
@@ -95,9 +93,9 @@ impl Interpreter {
         };
     }
 
-    fn substitute(node: Rc<Mutex<Node>>) {
-        let s = if let Node::Substitution {var, subs, term} = mutex!(node).deref() {
-            match mutex!(term).deref() {
+    fn substitute(node: Rc<RefCell<Node>>) {
+        let s = if let Node::Substitution {var, subs, term} = node.borrow().deref() {
+            match term.borrow().deref() {
                 Node::Application {left, right} => {
                     //Rule 3
                     let left = Node::Substitution {
@@ -115,14 +113,14 @@ impl Interpreter {
                 v @ Node::Var(c) => {
                     if c == var {
                         //Rule 1
-                        mutex!(subs).deref().clone()
+                        (subs).borrow().clone()
                     } else {
                         //Rule 2
                         v.clone()
                     }
                 }
                 n @ Node::Lambda {var: v, term} => {
-                    let v = if let Node::Var(v) = mutex!(v).deref() {
+                    let v = if let Node::Var(v) = v.borrow().deref() {
                         *v
                     } else {
                         unreachable!()
@@ -142,8 +140,8 @@ impl Interpreter {
                             term: term.clone()
                         };
                         Node::Lambda {
-                            var: Rc::new(Mutex::new(Node::make_var(v))),
-                            term: Rc::new(Mutex::new(new_term))
+                            var: Rc::new(RefCell::new(Node::make_var(v))),
+                            term: Rc::new(RefCell::new(new_term))
                         }
                     } else {
                         //Rule 7
@@ -151,7 +149,7 @@ impl Interpreter {
                             left: subs.clone(),
                             right: term.clone()
                         };
-                        let app = Rc::new(Mutex::new(app));
+                        let app = Rc::new(RefCell::new(app));
                         let free_vars = Self::free_vars(&app);
                         let mut subs_var = None;
                         for c in 'a'..'z' {
@@ -165,7 +163,7 @@ impl Interpreter {
                         }
 
                         let subs_var = Node::make_var(subs_var.unwrap());
-                        let subs_var = Rc::new(Mutex::new(subs_var));
+                        let subs_var = Rc::new(RefCell::new(subs_var));
                         let term_subs = Node::Substitution {
                             var: v,
                             subs: subs_var.clone(),
@@ -174,12 +172,12 @@ impl Interpreter {
                         let term_subs = Node::Substitution {
                             var: *var,
                             subs: subs.clone(),
-                            term: Rc::new(Mutex::new(term_subs))
+                            term: Rc::new(RefCell::new(term_subs))
                         };
 
                         Node::Lambda {
                             var: subs_var,
-                            term: Rc::new(Mutex::new(term_subs))
+                            term: Rc::new(RefCell::new(term_subs))
                         }
                     }
                 }
@@ -189,13 +187,12 @@ impl Interpreter {
             unreachable!()
         };
 
-        let mut n = mutex!(node);
-        let n = n.deref_mut();
+        let mut n = node.borrow_mut();
         *n = s;
     }
 
-    fn find_substitution(root: Rc<Mutex<Node>>) -> Option<Rc<Mutex<Node>>> {
-        match mutex!(root).deref() {
+    fn find_substitution(root: Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
+        match root.borrow().deref() {
             Node::Substitution {..} => Some(root.clone()),
             Node::Var(_) => None,
             Node::Application {left, right} => {

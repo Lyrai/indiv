@@ -1,8 +1,8 @@
 use crate::TokenStream;
 use crate::lexer::Token;
 use std::rc::Rc;
-use std::sync::Mutex;
 use std::ops::Deref;
+use std::cell::RefCell;
 
 pub struct Parser {
     stream: TokenStream
@@ -11,17 +11,17 @@ pub struct Parser {
 #[derive(Debug, Clone)]
 pub enum Node {
     Application {
-        left: Rc<Mutex<Node>>,
-        right: Rc<Mutex<Node>>
+        left: Rc<RefCell<Node>>,
+        right: Rc<RefCell<Node>>
     },
     Lambda {
-        var: Rc<Mutex<Node>>,
-        term: Rc<Mutex<Node>>
+        var: Rc<RefCell<Node>>,
+        term: Rc<RefCell<Node>>
     },
     Substitution {
         var: char,
-        subs: Rc<Mutex<Node>>,
-        term: Rc<Mutex<Node>>
+        subs: Rc<RefCell<Node>>,
+        term: Rc<RefCell<Node>>
     },
     Var(char)
 }
@@ -29,10 +29,16 @@ pub enum Node {
 impl ToString for Node {
     fn to_string(&self) -> String {
         match self {
-            Node::Application { left, right } => format!("{}{}", left.lock().unwrap().deref().to_string(), right.lock().unwrap().deref().to_string()),
-            Node::Lambda { var, term } => format!("(^{}.{})", var.lock().unwrap().deref().to_string(), term.lock().unwrap().deref().to_string()),
+            Node::Application { left, right } => {
+                if let n @ Node::Application {..} = right.borrow().deref() {
+                    format!("{}({})", left.borrow().to_string(), n.to_string())
+                } else {
+                    format!("{}{}", left.borrow().to_string(), right.borrow().to_string())
+                }
+            },
+            Node::Lambda { var, term } => format!("(^{}.{})", var.borrow().to_string(), term.borrow().to_string()),
             Node::Var(c) => format!("{}", c),
-            Node::Substitution {var, subs, term} => format!("([{}/{}]{})", subs.lock().unwrap().to_string(), var, term.lock().unwrap().to_string())
+            Node::Substitution {var, subs, term} => format!("([{}/{}]{})", subs.borrow().to_string(), var, term.borrow().to_string())
         }
     }
 }
@@ -40,15 +46,15 @@ impl ToString for Node {
 impl Node {
     pub fn make_application(lhs: Self, rhs: Self) -> Self {
         Node::Application {
-            left: Rc::new(Mutex::new(lhs)),
-            right: Rc::new(Mutex::new(rhs))
+            left: Rc::new(RefCell::new(lhs)),
+            right: Rc::new(RefCell::new(rhs))
         }
     }
 
     pub fn make_lambda(var: Self, term: Self) -> Self {
         Node::Lambda {
-            var: Rc::new(Mutex::new(var)),
-            term: Rc::new(Mutex::new(term))
+            var: Rc::new(RefCell::new(var)),
+            term: Rc::new(RefCell::new(term))
         }
     }
 
@@ -72,12 +78,12 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Rc<Mutex<Node>> {
+    pub fn parse(&mut self) -> Rc<RefCell<Node>> {
         let node = self.application();
         if let Some(Token::Eof) = self.match_token() {
             panic!("Unexpected end of file")
         }
-        Rc::new(Mutex::new(node))
+        Rc::new(RefCell::new(node))
     }
 
     fn term(&mut self) -> Node {
